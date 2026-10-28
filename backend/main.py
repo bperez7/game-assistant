@@ -1,8 +1,3 @@
-from fastapi import FastAPI
+from app.api import create_app
 
-app = FastAPI()
-
-
-@app.get("/api/hello")
-def hello():
-    return {"message": "Hello from the backend!"}
+app = create_app()
