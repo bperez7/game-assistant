@@ -54,14 +54,29 @@ class Citation(BaseModel):
     excerpt: str
 
 
+class GuideImage(BaseModel):
+    url: str
+    alt: str
+    caption: str
+    heading: str
+    source_title: str
+    source_url: str
+    citation_number: Optional[int] = None
+
+
 class Answer(BaseModel):
     game_id: str
     answer: str
     mode: Literal["extractive", "generate"]
     status: Literal["answered", "insufficient_context"]
     citations: list[Citation]
+    images: list[GuideImage] = Field(default_factory=list)
 
 
 class GeneratedAnswer(BaseModel):
     answer: str = Field(min_length=1, max_length=12000)
     citation_numbers: list[int] = Field(min_length=1, max_length=10)
+
+
+class WalkthroughDiscovery(Input):
+    url: HttpUrl

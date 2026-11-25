@@ -9,8 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .answers import GenerationError, answer_question
 from .config import Settings
-from .ingestion import SourceError, fetch_walkthrough
-from .models import Answer, Game, GameCreate, Question, Source, SourceCreate
+from .ingestion import SourceError, fetch_guide, discover_walkthrough
+from .models import Answer, Game, GameCreate, GuideImage, Question, Source, SourceCreate, WalkthroughDiscovery
 from .store import Store
 
 
@@ -45,7 +45,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     def health():
         with store.connect() as db:
             db.execute("SELECT count(*) FROM games").fetchone()
-        return {"status": "ok", "retrieval": "sqlite-fts5", "generation_configured": bool(settings.ollama_model)}
+        return {"status": "ok", "retrieval": "sqlite-fts5", "generation_configured": settings.generation_configured}
 
     @app.get("/api/games", response_model=list[Game])
     def games(q: str = Query(default="", max_length=200), limit: int = Query(default=50, ge=1, le=100),
@@ -73,10 +73,18 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     def ingest(game_id: str, body: SourceCreate):
         require_game(game_id)
         try:
-            text = body.text if body.text is not None else fetch_walkthrough(str(body.url), settings.allowed_source_hosts)
+            text, images = (body.text, []) if body.text is not None else fetch_guide(str(body.url), settings.allowed_source_hosts)
         except SourceError as exc:
             raise HTTPException(422, str(exc)) from exc
-        return store.ingest(game_id, body, text)
+        return store.ingest(game_id, body, text, images)
+
+    @app.post("/api/games/{game_id}/walkthrough/discover", dependencies=[Depends(require_admin)])
+    def discover(game_id: str, body: WalkthroughDiscovery):
+        require_game(game_id)
+        try:
+            return discover_walkthrough(str(body.url), settings.allowed_source_hosts)
+        except SourceError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.delete("/api/games/{game_id}/sources/{source_id}", status_code=204,
                 dependencies=[Depends(require_admin)])
@@ -90,8 +98,10 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     def query(game_id: str, body: Question):
         game = require_game(game_id)
         try:
-            return answer_question(game_id, game["title"], body, store.search(game_id, body), settings)
+            answer = answer_question(game_id, game["title"], body, store.search(game_id, body), settings)
+            answer.images = [GuideImage(**image) for image in (store.related_images(game_id, body, answer.citations) if answer.status == "answered" else [])]
+            return answer
         except GenerationError as exc:
-            raise HTTPException(503 if not settings.ollama_model else 502, str(exc)) from exc
+            raise HTTPException(503 if not settings.generation_configured else 502, str(exc)) from exc
 
     return app

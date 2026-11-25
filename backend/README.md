@@ -70,7 +70,20 @@ POST the source URL and title without `text`. The importer checks `robots.txt`, 
 
 Remote fetching uses public IP validation and pins the checked address when opening the TLS connection, retaining hostname verification. Requests have a 10-second socket timeout and a 2 MB response cap; extracted text is limited to 500,000 characters. Private, loopback, and link-local targets are rejected. Robots errors other than a missing file fail closed. Ingestion is synchronous and intended for individually curated pages; large imports should move to a job queue with per-host throttling.
 
-## Optional generated answers
+## Generated answers with OpenAI
+
+Add these settings to `backend/.env` (never to frontend files):
+
+```dotenv
+WALKTHROUGH_OPENAI_API_KEY=your-api-key
+WALKTHROUGH_OPENAI_MODEL=gpt-4o-mini
+```
+
+Restart the backend and reload the frontend. **Generated guidance** is selected by default when configured. The model synthesizes steps from imported walkthrough passages with citations; add sources first. The model name is configurable.
+
+The backend calls OpenAI's Responses API with structured output and `store: false`. Questions, context, and retrieved passages are sent to OpenAI, and API usage is billed to your account. The key stays on the backend and is excluded from Git by `.gitignore`. OpenAI takes precedence when both OpenAI and Ollama are configured. Failed requests return an error without silently switching providers or returning source passages. Health reports configuration, not live API availability.
+
+## Optional local generated answers
 
 Install/run Ollama separately, pull a model suitable for your machine, and configure its exact name:
 
@@ -99,3 +112,19 @@ cd backend
 Tests use temporary databases and mocked network/model responses. They cover persistence, game isolation, source replacement/deletion, platform/version filtering, citation validation, request validation, admin protection, no-result behavior, HTML extraction, robots policy, response limits, and SSRF restrictions.
 
 Implementation references: [SQLite FTS5 and BM25](https://www.sqlite.org/fts5.html), [Ollama chat API](https://docs.ollama.com/api/chat), and [FastAPI testing](https://fastapi.tiangolo.com/tutorial/testing/).
+
+## Guide images
+
+URL-only HTML imports collect up to 100 HTTPS images, including common lazy-loading attributes and srcsets, with alt text, figure captions, and preceding headings. Small images and common logo/avatar/ad labels are filtered heuristically. Images are associated with the overlapping text passages at their position in the guide. Answers include up to three distinct images from the passages actually cited, in citation order; the model does not analyze the images.
+
+Reimport existing guides using the same URL and leaving text blank to collect images. Pasted-text and plain-text imports do not collect images. Reimporting replaces old images; deleting a source removes them. Existing databases gain the image table automatically on startup.
+
+The browser loads images directly from their original HTTPS URLs without a referrer; image files are not downloaded or proxied by the backend. Each image links to its source guide. Sites that require cookies, block embedding, or render images only with JavaScript may not display images; a source link remains available. Filtering and passage proximity are heuristics, so unrelated images can occasionally appear.
+
+## Importing a walkthrough collection
+
+In **Add a walkthrough**, choose **Import multiple walkthrough pages**, enter the index URL, and select pages. Discovery (`POST /api/games/{id}/walkthrough/discover`) reads up to 100 unique links from that index, restricted to the same host and containing path section. It does not recursively crawl links. A root-level index is rejected because it cannot establish a game-specific section. Review the discovered titles to exclude unrelated topics. Normal allowlist, public-address validation, and robots rules apply to every fetched page.
+
+Select up to 25 pages per batch. The browser imports them sequentially with a one-second pause and reports individual successes and errors. Keep the dialog and tab open: closing it stops after the current request; imported pages persist. This is a browser-managed batch, not a durable background job. Retry failed pages by selecting them again; identical source URLs are replaced. Platform/version settings apply to every selected page.
+
+Answers already retrieve text across the game's imported sources. Image matching now ranks images across those sources using query/context overlap with captions, alt text, headings, source titles, and nearby passage text, while respecting platform/version filters. Up to three distinct images appear. Images outside cited passages are labeled **Related guide** and link to their own source; they are not represented as text citations or visually analyzed by the model. No matching images means none are shown. This supersedes the cited-passage-only image selection described above.

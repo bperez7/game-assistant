@@ -1,10 +1,25 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { api, errorMessage } from './api';
-import type { Answer, Game, Health, Source } from './api';
+import type { Answer, Game, GuideImage, Health, Source } from './api';
 import { Icon } from './Icons';
 import './App.css';
-type ModalKind = 'game' | 'source' | 'settings' | null;
+import { WalkthroughImport } from './WalkthroughImport';
+export function GuideImageCard({ image }: { image: GuideImage }) {
+  const [failed, setFailed] = useState(false);
+  return <figure className="guide-image">
+    {!failed ? <a href={image.source_url} target="_blank" rel="noopener noreferrer">
+      <img src={image.url} alt={image.alt || image.caption || image.heading || 'Walkthrough screenshot'}
+        loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+    </a> : <p className="image-unavailable">Image unavailable. View it in the original guide.</p>}
+    <figcaption>
+      {(image.caption || image.heading) && <span>{image.caption || image.heading}</span>}
+      <a href={image.source_url} target="_blank" rel="noopener noreferrer">{image.citation_number ? `[${image.citation_number}] ` : 'Related guide: '}{image.source_title} ↗</a>
+    </figcaption>
+  </figure>;
+}
+
+type ModalKind = 'game' | 'source' | 'settings' | 'walkthrough' | null;
 interface Turn {
   id: number;
   question: string;
@@ -239,6 +254,9 @@ function App() {
           <span className="breadcrumb-slash">/</span>
           <strong>{selected?.title || 'New adventure'}</strong>
         </div>
+        {selected && <button className="primary" onClick={() => openModal('walkthrough')}>
+          <Icon name="plus" size={16} /> Import walkthrough pages
+        </button>}
         <span className="private-label"><Icon name="compass" size={15} /> YOUR PERSONAL WALKTHROUGH</span>
       </header>
       {selected ? <GameWorkspace key={selected.id} game={selected} generationAvailable={!!health?.generation_configured} adminKey={adminKey} refresh={sourceRefresh} addSource={() => openModal('source')} /> : <div className="welcome empty-library">
@@ -270,6 +288,7 @@ function App() {
       </form>
     </Modal>}
     {modal === 'source' && <Modal title="Add a walkthrough" close={() => !saving && setModal(null)}>
+      <button className="text-button" onClick={() => setModal('walkthrough')}>Import multiple walkthrough pages →</button>
       <form onSubmit={submitSource} className="stack">
         <p className="muted small">Add a guide for <strong>{selected?.title}</strong>. Use sources you have permission to import.</p>
         <div className="segmented">
@@ -291,13 +310,16 @@ function App() {
         </button>
       </form>
     </Modal>}
+    {modal === 'walkthrough' && selected && <Modal title="Import walkthrough pages" close={() => setModal(null)}>
+      <WalkthroughImport gameId={selected.id} adminKey={adminKey} onImported={() => setSourceRefresh(n => n + 1)} />
+    </Modal>}
     {modal === 'settings' && <Modal title="Workspace settings" close={() => setModal(null)}>
       <form className="stack" onSubmit={e => {
         e.preventDefault();
         setModal(null);
       }}>
         <label>Admin key<input type="password" autoComplete="off" value={adminKey} onChange={e => setAdminKey(e.target.value)} placeholder="Only if your backend requires one" /><small>Used to add games, import guides, and delete sources. Kept in memory for this tab only.</small></label>
-        <div className="notice">Generated answers {health?.generation_configured ? 'are configured on your backend.' : 'need an Ollama model configured on your backend.'} Source passages are available without a model.</div>
+        <div className="notice">Generated answers {health?.generation_configured ? 'are configured on your backend.' : 'need an OpenAI API key or Ollama model configured on your backend.'} Source passages are available without a model.</div>
         <button className="primary">Done<Icon name="check" size={18} /></button>
       </form>
     </Modal>}
@@ -324,7 +346,8 @@ function GameWorkspace({
   const [context, setContext] = useState('');
   const [platform, setPlatform] = useState('');
   const [version, setVersion] = useState('');
-  const [mode, setMode] = useState<'extractive' | 'generate'>('extractive');
+  const [modeChoice, setMode] = useState<'extractive' | 'generate' | null>(null);
+  const mode = modeChoice ?? (generationAvailable ? 'generate' : 'extractive');
   const [options, setOptions] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [pending, setPending] = useState(false);
@@ -472,6 +495,9 @@ function GameWorkspace({
                 document.getElementById(`citation-${turn.id}-${number}`)?.closest("details")?.setAttribute("open", "");
               }} href={`#citation-${turn.id}-${number}`}>{number}</a> : <span key={i}>{part}</span>;
             })}</div>
+          {!!turn.answer.images?.length && <section className="guide-images" aria-label="Related guide images">
+            {turn.answer.images.map(image => <GuideImageCard key={image.url} image={image} />)}
+          </section>}
           {turn.answer.status === 'insufficient_context' && <button className="text-button" onClick={addSource}>Add another walkthrough <Icon name="plus" size={15} /></button>}
           {turn.answer.citations.length > 0 && <details className="citations">
             <summary><Icon name="link" size={15} />{turn.answer.citations.length} supporting passage{turn.answer.citations.length === 1 ? '' : 's'}<span>View sources</span></summary>

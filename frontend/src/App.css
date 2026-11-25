@@ -1423,3 +1423,17 @@ label small {
     padding-top: 15px;
   }
 }
+
+.guide-images { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 16px; margin: 20px 0; }
+.guide-image { margin: 0; min-width: 0; border: 1px solid #39434b; border-radius: 10px; overflow: hidden; }
+.guide-image img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #111820; }
+.guide-image figcaption { display: grid; gap: 8px; padding: 12px; font-size: 12px; line-height: 1.5; }
+.guide-image figcaption a { color: inherit; }
+.image-unavailable { padding: 16px; font-size: 13px; }
+.walkthrough-pages { max-height: 320px; overflow: auto; border: 1px solid #39434b; border-radius: 8px; padding: 12px; }
+.walkthrough-page { display: flex; flex-direction: row; align-items: start; gap: 12px; padding: 8px 0; }
+.walkthrough-page input { width: auto; flex: 0 0 auto; margin-top: 4px; }
+.walkthrough-page span, .walkthrough-results li { display: grid; gap: 6px; }
+.walkthrough-page a, .walkthrough-results a { color: inherit; font-size: 12px; overflow-wrap: anywhere; }
+.walkthrough-results { padding-left: 18px; max-height: 240px; overflow: auto; }
+.walkthrough-results li { margin-bottom: 12px; font-size: 13px; }

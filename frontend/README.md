@@ -29,7 +29,7 @@ Open the Local URL printed by Vite (normally http://localhost:5173). Vite proxie
 3. Ask a question. Select **Context & filters** to include your location/objective, platform, or game version.
 4. Open supporting passages or follow a citation to its original guide.
 
-**Source passages** works without a model. **Generated guidance** becomes selectable when `/api/health` reports a configured Ollama model. Configuration does not guarantee the model is currently available; model errors appear alongside the question form.
+**Source passages** works without a model. **Generated guidance** becomes selectable when `/api/health` reports a configured OpenAI API key or Ollama model, and is selected by default. See the backend README for setup. Configuration does not guarantee the model is currently available; model errors appear alongside the question form.
 
 If the backend requires an admin key, enter it in **Workspace settings** before adding games or changing sources. It stays in memory only. Game/source data persists in the backend. Questions and answers are held in memory and reset when switching games or reloading. Each query is independent; include earlier details in the context field for follow-up questions. Press `/` to focus library search; Enter sends a question and Shift+Enter adds a line break.
 

@@ -44,13 +44,23 @@ test('initial app renders accessible empty-library setup', async () => {
   const { createElement } = await import('react')
   const server = await createServer({ root: join(root, 'frontend'), server: { middlewareMode: true, hmr: false }, logLevel: 'silent' })
   try {
-    const { default: App } = await server.ssrLoadModule('/src/App.tsx')
+    const { default: App, GuideImageCard } = await server.ssrLoadModule('/src/App.tsx')
     const html = renderToString(createElement(App))
     assert.match(html, /Waypoint/)
     assert.match(html, /Add your first game/)
     assert.match(html, /aria-label="Game library"/)
     assert.match(html, /aria-label="Search your games"/)
     assert.doesNotMatch(html, /Click to call the backend/)
+    const card = renderToString(createElement(GuideImageCard, { image: {
+      url: 'https://guides.example/boss.jpg', alt: 'Boss weak point', caption: 'Aim at the crystal',
+      heading: 'Boss arena', source_title: 'Boss guide', source_url: 'https://guides.example/guide', citation_number: 1,
+    } }))
+    assert.match(card, /alt="Boss weak point"/)
+    assert.match(card, /Aim at the crystal/)
+    assert.match(card, /href="https:\/\/guides.example\/guide"/)
+    assert.match(card, /referrerPolicy="no-referrer"/)
+    assert.match(card, /loading="lazy"/)
+
   } finally { await server.close() }
 })
 

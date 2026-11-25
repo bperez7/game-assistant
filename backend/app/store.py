@@ -49,6 +49,12 @@ class Store:
                     updated_at TEXT NOT NULL, chunk_count INTEGER NOT NULL,
                     UNIQUE(game_id, url)
                 );
+                CREATE TABLE IF NOT EXISTS guide_images (
+                    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                    chunk_id INTEGER NOT NULL, url TEXT NOT NULL, alt TEXT NOT NULL,
+                    caption TEXT NOT NULL, heading TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS guide_images_chunk ON guide_images(source_id, chunk_id);
                 CREATE VIRTUAL TABLE IF NOT EXISTS passages USING fts5(
                     text, source_id UNINDEXED, game_id UNINDEXED,
                     tokenize='porter unicode61'
@@ -79,12 +85,13 @@ class Store:
                 "SELECT * FROM sources WHERE game_id = ? ORDER BY title, id", (game_id,)
             )]
 
-    def ingest(self, game_id: str, source: SourceCreate, text: str):
+    def ingest(self, game_id: str, source: SourceCreate, text: str, images: list[dict] = None):
         passages = chunks(text)
         url = str(source.url).split("#", 1)[0]
         with self.connect() as db:
             existing = db.execute("SELECT id FROM sources WHERE game_id = ? AND url = ?", (game_id, url)).fetchone()
             source_id = existing["id"] if existing else str(uuid4())
+            db.execute("DELETE FROM guide_images WHERE source_id = ?", (source_id,))
             db.execute("DELETE FROM passages WHERE source_id = ?", (source_id,))
             db.execute("""INSERT INTO sources VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(game_id, url) DO UPDATE SET title=excluded.title,
@@ -92,8 +99,14 @@ class Store:
                 updated_at=excluded.updated_at, chunk_count=excluded.chunk_count""",
                 (source_id, game_id, url, source.title, source.platform, source.version,
                  datetime.now(timezone.utc).isoformat(), len(passages)))
-            db.executemany("INSERT INTO passages(text, source_id, game_id) VALUES (?, ?, ?)",
-                           [(p, source_id, game_id) for p in passages])
+            for index, passage in enumerate(passages):
+                chunk_id = db.execute("INSERT INTO passages(text, source_id, game_id) VALUES (?, ?, ?)",
+                                      (passage, source_id, game_id)).lastrowid
+                for image in images or []:
+                    # Include images within this passage, including a trailing figure.
+                    if index * 150 <= image["word_offset"] <= index * 150 + len(passage.split()):
+                        db.execute("INSERT INTO guide_images VALUES (?, ?, ?, ?, ?, ?)",
+                                   (source_id, chunk_id, image["url"], image["alt"], image["caption"], image["heading"]))
             return dict(db.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone())
 
     def delete_source(self, game_id, source_id):
@@ -101,6 +114,7 @@ class Store:
             row = db.execute("SELECT id FROM sources WHERE id = ? AND game_id = ?", (source_id, game_id)).fetchone()
             if not row:
                 return False
+            db.execute("DELETE FROM guide_images WHERE source_id = ?", (source_id,))
             db.execute("DELETE FROM passages WHERE source_id = ?", (source_id,))
             db.execute("DELETE FROM sources WHERE id = ?", (source_id,))
             return True
@@ -131,3 +145,55 @@ class Store:
         selected_ids = {r["chunk_id"] for r in selected}
         selected.extend(dict(r) for r in rows if r["chunk_id"] not in selected_ids)
         return selected[:question.top_k]
+
+    def answer_images(self, citations):
+        result, seen = [], set()
+        with self.connect() as db:
+            for citation in citations:
+                rows = db.execute("SELECT * FROM guide_images WHERE source_id = ? AND chunk_id = ?",
+                                  (citation.source_id, citation.chunk_id))
+                for row in rows:
+                    if row["url"] in seen:
+                        continue
+                    seen.add(row["url"])
+                    result.append({"url": row["url"], "alt": row["alt"], "caption": row["caption"],
+                                   "heading": row["heading"], "source_title": citation.title,
+                                   "source_url": citation.url, "citation_number": citation.number})
+                    if len(result) == 3:
+                        return result
+        return result
+
+    def related_images(self, game_id, question, citations):
+        terms = {t.lower() for t in re.findall(r"[^\W_]+", question.question + " " + question.context)
+                 if t.lower() not in STOP_WORDS}
+        cited = {(c.source_id, c.chunk_id): c.number for c in citations}
+        with self.connect() as db:
+            rows = db.execute("""
+                SELECT i.*, s.title, s.url AS source_url, p.text
+                FROM guide_images i JOIN sources s ON s.id = i.source_id
+                JOIN passages p ON p.rowid = i.chunk_id AND p.source_id = i.source_id
+                WHERE s.game_id = ?
+                AND (? IS NULL OR s.platform IS NULL OR lower(s.platform) = lower(?))
+                AND (? IS NULL OR s.version IS NULL OR lower(s.version) = lower(?))
+            """, (game_id, question.platform, question.platform, question.version, question.version)).fetchall()
+        ranked = []
+        for row in rows:
+            metadata = " ".join(row[k] for k in ("alt", "caption", "heading"))
+            words = set(re.findall(r"[^\W_]+", metadata.lower()))
+            context = set(re.findall(r"[^\W_]+", (row["text"] + " " + row["title"]).lower()))
+            number = cited.get((row["source_id"], row["chunk_id"]))
+            score = 4 * len(terms & words) + len(terms & context)
+            if score or number is not None:
+                ranked.append((score, number is not None, row, number))
+        ranked.sort(key=lambda item: (-item[0], -item[1], item[2]["url"]))
+        result, seen = [], set()
+        for _, _, row, number in ranked:
+            if row["url"] in seen:
+                continue
+            seen.add(row["url"])
+            result.append({"url": row["url"], "alt": row["alt"], "caption": row["caption"],
+                           "heading": row["heading"], "source_title": row["title"],
+                           "source_url": row["source_url"], "citation_number": number})
+            if len(result) == 3:
+                break
+        return result

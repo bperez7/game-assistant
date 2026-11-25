@@ -19,11 +19,21 @@ export interface Citation {
   url: string;
   excerpt: string;
 }
+export interface GuideImage {
+  url: string;
+  alt: string;
+  caption: string;
+  heading: string;
+  source_title: string;
+  source_url: string;
+  citation_number: number | null;
+}
 export interface Answer {
   answer: string;
   mode: 'extractive' | 'generate';
   status: 'answered' | 'insufficient_context';
   citations: Citation[];
+  images?: GuideImage[];
 }
 export interface Health {
   status: string;
